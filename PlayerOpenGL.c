@@ -58,15 +58,17 @@ unsigned char* frameData;
 uint32_t pixelFormat = 4;
 
 // FFMPEG Declarations
-AVFormatContext* avFormatContext  = NULL;
-AVCodecContext*  avCodecContext   = NULL;
-AVFrame*         avFrame[2]       = {NULL, NULL};
-int64_t          pts              = 0;
-int              vidStrId         = -1;
-bool             ffmpegAvFrameIdx = false;
-bool             ffmpegThreadLive = false;
-bool             newFrame         = false;
-pthread_mutex_t  ffmpegLoadFrameMutex;
+AVFormatContext* avFormatContext        = NULL;
+AVCodecContext*  avCodecContext         = NULL;
+AVFrame*         avFrame[2]             = {NULL, NULL};
+int64_t          pts                    = 0;
+int              vidStrId               = -1;
+bool             ffmpegAvFrameIdx       = false;
+bool             ffmpegThreadLive       = false;
+//bool             newFrameFlag[2]        = {false, false};
+pthread_mutex_t* ffmpegLoadFrameMutex   = NULL;
+pthread_mutex_t* ffmpegBufferMutex[2]   = {NULL, NULL};
+pthread_mutex_t* ffmpegNewFrameMutex[2] = {NULL, NULL};
 
 uint8_t decimalZero[FONT_HEIGHT][FONT_WIDTH] =
 {
@@ -473,9 +475,10 @@ bool ffmpegOpenVideoFile(AVFormatContext** avFmtCtx, AVCodecContext** avCodecCtx
     }
   }
 
-  pthread_mutex_init(&ffmpegLoadFrameMutex, NULL);
+  avFrame[0] = av_frame_alloc();
+  avFrame[1] = av_frame_alloc();
+
   ffmpegThreadLive = true;
-  newFrame = false;
 
   return true;
 }
@@ -488,10 +491,12 @@ int av_read_frame_return_value(AVFormatContext* avFmtCtx, AVPacket* avPacketLoca
 }
 
 
-int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vidStrId, int64_t* pts) {
+int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vidStrId, int64_t* pts, bool bufferIdx) {
   bool ret = true;
 
-  avFrame[!ffmpegAvFrameIdx] = av_frame_alloc();
+  av_frame_free(&avFrame[bufferIdx]);
+
+  avFrame[bufferIdx] = av_frame_alloc();
   AVPacket* avPacketLocal = av_packet_alloc();
 
   int response;
@@ -509,7 +514,7 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
       printf("Failed to decode packet \n");
       ret = false;
     }
-    response = avcodec_receive_frame(avCodCtx, avFrame[!ffmpegAvFrameIdx]);
+    response = avcodec_receive_frame(avCodCtx, avFrame[bufferIdx]);
     if (response == AVERROR(EAGAIN) ) {
       continue;
     } else if (response == AVERROR_EOF) {
@@ -519,35 +524,28 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
       printf("Failed to decode packet \n");
       ret = false;
     }
-    //
-    //		if( ( avFrameLocal->pts + (avFrameLocal->pts - *pts) ) >= (avFmtCtx->streams[*vidStrId]->duration - (avFrameLocal->pts - *pts)) ) {
-    //			avio_seek(avFmtCtx->pb, 0, SEEK_SET);
-    //			avformat_seek_file(avFmtCtx, *vidStrId, 0, 0, avFmtCtx->streams[*vidStrId]->duration, 0);
-    //			continue;
-    //		}
-
 
     av_packet_unref(avPacketLocal);
     break;
   }
 
-
-  pthread_mutex_lock(&ffmpegLoadFrameMutex);
-
-  
   //memcpy(frameData, avFrame[ffmpegAvFrameIdx]->data[0], videoWidth * videoHeight * sizeof(unsigned char));
-  
   //memcpy(lumaVideoData, avFrameLocal->data[0], srcVideoWidth * srcVideoHeight * sizeof(uint8_t));
   //memcpy(chromaRedVideoData, avFrameLocal->data[2], (srcVideoWidth / 2) * (srcVideoHeight / 2) * sizeof(uint8_t));
   //memcpy(chromaBlueVideoData, avFrameLocal->data[1], (srcVideoWidth / 2) * (srcVideoHeight / 2) * sizeof(uint8_t));
-  newFrame = true;
-  ffmpegAvFrameIdx = !ffmpegAvFrameIdx;
-
-  pthread_mutex_unlock(&ffmpegLoadFrameMutex);
-
-  if (avFrame[!ffmpegAvFrameIdx] != NULL) {
-    av_frame_free(&avFrame[!ffmpegAvFrameIdx]);
-  }
+  
+  pthread_mutex_lock(ffmpegNewFrameMutex[bufferIdx]);
+  //if ( !newFrame ) {
+  //  ffmpegAvFrameIdx = bufferIdx;
+  //}
+  
+  //newFrameFlag[bufferIdx] = true;
+  
+  //printf("newFrame = true : Buffer %X \n", bufferIdx);
+  
+  //if (avFrame[!ffmpegAvFrameIdx] != NULL) {
+  //  av_frame_free(&avFrame[!ffmpegAvFrameIdx]);
+  //}
   av_packet_free(&avPacketLocal);
 
   return 0;
@@ -556,7 +554,7 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
 int ffmpegCloseVideoFile(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx) {
   printf("[ClientRTSP] closeVideoFile() \n");
 
-  pthread_mutex_destroy(&ffmpegLoadFrameMutex);
+  pthread_mutex_destroy(ffmpegLoadFrameMutex);
   printf("[ClientRTSP] pthread_mutex_destroy() \n");
 
   if(avFrame[0] != NULL) {
@@ -583,17 +581,41 @@ int ffmpegCloseVideoFile(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx) {
   return 0;
 }
 
-void *ffmpegThreadHandler(void *data)
-{
+void *ffmpegBufferZeroThreadHandler(void *data) {
   char *name = (char*)data;
-  printf("[ffmpegThreadHandler] Start Thread : %s \n", name);
+  printf("[ffmpegBufferZeroThreadHandler] Start Thread : %s \n", name);
   while (ffmpegThreadLive) {
-    if (!newFrame) {
-      ffmpegLoadFrame(avFormatContext, avCodecContext, &vidStrId, &pts);
-      //ffmpegLoadNetworkFrame(avFmtCtx, avCodecCtx, &vidStrId, &pts);
-    }
+    pthread_mutex_lock(ffmpegNewFrameMutex[0]);
+    pthread_mutex_unlock(ffmpegNewFrameMutex[0]);
+    
+    pthread_mutex_lock(ffmpegBufferMutex[0]);
+    
+    pthread_mutex_lock(ffmpegLoadFrameMutex);
+    ffmpegLoadFrame(avFormatContext, avCodecContext, &vidStrId, &pts, false);
+    pthread_mutex_unlock(ffmpegLoadFrameMutex);
+
+    pthread_mutex_unlock(ffmpegBufferMutex[0]);
   }
-  printf("[ffmpegThreadHandler] Stop Thread : %s \n", name);
+  printf("[ffmpegBufferZeroThreadHandler] Stop Thread : %s \n", name);
+  return NULL;
+}
+
+void *ffmpegBufferOneThreadHandler(void *data) {
+  char *name = (char*)data;
+  printf("[ffmpegBufferOneThreadHandler] Start Thread : %s \n", name);
+  while (ffmpegThreadLive) {
+    pthread_mutex_lock(ffmpegNewFrameMutex[1]);
+    pthread_mutex_unlock(ffmpegNewFrameMutex[1]);
+    
+    pthread_mutex_lock(ffmpegBufferMutex[1]);
+    
+    pthread_mutex_lock(ffmpegLoadFrameMutex);
+    ffmpegLoadFrame(avFormatContext, avCodecContext, &vidStrId, &pts, true);
+    pthread_mutex_unlock(ffmpegLoadFrameMutex);
+
+    pthread_mutex_unlock(ffmpegBufferMutex[1]);    
+  }
+  printf("[ffmpegBufferOneThreadHandler] Stop Thread : %s \n", name);
   return NULL;
 }
 
@@ -616,11 +638,11 @@ int main(int argc, char **argv) {
   winAttrib.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | StructureNotifyMask | PointerMotionMask;
   Screen* screen = ScreenOfDisplay(dpy, 0);
 
-  unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask;
-  Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, winWidth, winHeight, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
-  XSetStandardProperties(dpy, win, "FV200", "main", None, argv, argc, NULL);
+  //unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask;
+  //Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, winWidth, winHeight, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
+  //XSetStandardProperties(dpy, win, "FV200", "main", None, argv, argc, NULL);
 
-  /*
+
   winAttrib.override_redirect = true;
   unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
   
@@ -644,6 +666,7 @@ int main(int argc, char **argv) {
   XFreePixmap(dpy, blankPixmap);
   XDefineCursor(dpy, win, blankcursor);
   
+  /*
 
   */
 
@@ -656,14 +679,33 @@ int main(int argc, char **argv) {
   fd_set inFds;
   struct timeval timeVal;
 
-  //screenWidth = screen->width;
-  //screenHeight = screen->height;
-  screenWidth = winWidth;
-  screenHeight = winHeight;
+  screenWidth = screen->width;
+  screenHeight = screen->height;
+  //screenWidth = winWidth;
+  //screenHeight = winHeight;
 
   printf("screenWidth : %d \n", screenWidth);
   printf("screenHeight : %d \n", screenHeight);
 
+  pthread_mutex_t ffmpegLoadFrameMutexInstance;
+  ffmpegLoadFrameMutex = &ffmpegLoadFrameMutexInstance;
+  pthread_mutex_init(ffmpegLoadFrameMutex, NULL);
+  
+  pthread_mutex_t ffmpegBufferMutexInstance0;
+  ffmpegBufferMutex[0] = &ffmpegBufferMutexInstance0; 
+  pthread_mutex_init(ffmpegBufferMutex[0], NULL);
+ 
+  pthread_mutex_t ffmpegBufferMutexInstance1;
+  ffmpegBufferMutex[1] = &ffmpegBufferMutexInstance1;
+  pthread_mutex_init(ffmpegBufferMutex[1], NULL);
+  
+  pthread_mutex_t ffmpegNewFrameMutexInstance0;
+  ffmpegNewFrameMutex[0] = &ffmpegNewFrameMutexInstance0;
+  pthread_mutex_init(ffmpegNewFrameMutex[0], NULL);
+  
+  pthread_mutex_t ffmpegNewFrameMutexInstance1;
+  ffmpegNewFrameMutex[1] = &ffmpegNewFrameMutexInstance1;
+  pthread_mutex_init(ffmpegNewFrameMutex[1], NULL);
   
   if (!ffmpegOpenVideoFile(&avFormatContext, &avCodecContext, &videoWidth, &videoHeight, &vidStrId, fileName)) {
     printf("Couldn't open video file. \n");
@@ -677,9 +719,15 @@ int main(int argc, char **argv) {
   memset(frameData, 0xFF, videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
 
   
-  pthread_t ffmpegThread;
-  pthread_create(&ffmpegThread, NULL, ffmpegThreadHandler, "ffmpegThread");
+  pthread_t ffmpegBufferZeroThread;
+  pthread_create(&ffmpegBufferZeroThread, NULL, ffmpegBufferZeroThreadHandler, "ffmpegBufferZeroThread");
 
+  pthread_t ffmpegBufferOneThread;
+  pthread_create(&ffmpegBufferOneThread, NULL, ffmpegBufferOneThreadHandler, "ffmpegBufferOneThread");
+
+  usleep(9000);
+
+  
   // OpenGL Init
   glewInit();
 
@@ -1094,8 +1142,10 @@ int main(int argc, char **argv) {
     }
 
 
-    if ( newFrame ) {
-      //printf("gstDecoderNewFrame \n");
+    //printf("gstDecoderNewFramenewFrameFlag[ffmpegAvFrameIdx] \n");
+    if ( true /* newFrameFlag[ffmpegAvFrameIdx] */ ) {
+      //printf("gstDecoderNewFramenewFrameFlag[%X] : TRUE \n", ffmpegAvFrameIdx);
+      pthread_mutex_lock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
       
       glActiveTexture(GL_TEXTURE11);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, videoWidth, videoHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[0]);
@@ -1106,7 +1156,11 @@ int main(int argc, char **argv) {
       glActiveTexture(GL_TEXTURE13);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[1]);
 
-  
+      //newFrameFlag[ffmpegAvFrameIdx] = false;
+      pthread_mutex_unlock(ffmpegNewFrameMutex[ffmpegAvFrameIdx]);
+      pthread_mutex_unlock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
+      ffmpegAvFrameIdx = !ffmpegAvFrameIdx;
+
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
       glUniform1i(glGetUniformLocation(programId, "unitNumberTex"), frameCount % 10);
@@ -1125,10 +1179,6 @@ int main(int argc, char **argv) {
       //glBindVertexArray(0);
 
       frameCount += 1;
-
-      pthread_mutex_lock(&ffmpegLoadFrameMutex);
-      newFrame = false;
-      pthread_mutex_unlock(&ffmpegLoadFrameMutex);
 
 
       if (doubleBuffer) {
