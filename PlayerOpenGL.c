@@ -54,6 +54,8 @@ static int32_t snglBuf[] = {GLX_RGBA, GLX_DEPTH_SIZE, 16, None};
 static int32_t dblBuf[]  = {GLX_RGBA, GLX_DEPTH_SIZE, 16, GLX_DOUBLEBUFFER, None};
 GLboolean doubleBuffer = GL_TRUE;
 
+GLboolean exitLoop = GL_FALSE;
+
 unsigned char* frameData;
 uint32_t pixelFormat = 4;
 
@@ -495,7 +497,6 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
   bool ret = true;
 
   av_frame_free(&avFrame[bufferIdx]);
-
   avFrame[bufferIdx] = av_frame_alloc();
   AVPacket* avPacketLocal = av_packet_alloc();
 
@@ -554,6 +555,16 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
 int ffmpegCloseVideoFile(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx) {
   printf("[ClientRTSP] closeVideoFile() \n");
 
+  //pthread_mutex_unlock(ffmpegNewFrameMutex[0]);    
+  //pthread_mutex_unlock(ffmpegBufferMutex[0]);
+  //pthread_mutex_unlock(ffmpegNewFrameMutex[1]);    
+  //pthread_mutex_unlock(ffmpegBufferMutex[1]);
+  //pthread_mutex_unlock(ffmpegLoadFrameMutex);
+
+  pthread_mutex_destroy(ffmpegNewFrameMutex[0]);
+  pthread_mutex_destroy(ffmpegNewFrameMutex[1]);
+  pthread_mutex_destroy(ffmpegBufferMutex[0]);
+  pthread_mutex_destroy(ffmpegBufferMutex[1]);
   pthread_mutex_destroy(ffmpegLoadFrameMutex);
   printf("[ClientRTSP] pthread_mutex_destroy() \n");
 
@@ -627,6 +638,14 @@ int main(int argc, char **argv) {
   }
   printf("argv : %s \n", (char*)argv[1]);
   char* fileName = (char*)argv[1];
+
+  bool fullscreen = true;
+  if ( argc > 2 ) {
+    printf("argv : %s \n", (char*)argv[2]);
+    if ( strcmp ( (const char*)argv[2], "-window" ) == 0 ) {
+      fullscreen = false;
+    }
+  }
   
   Display* dpy = XOpenDisplay(NULL);
   XVisualInfo* vis = glXChooseVisual(dpy, DefaultScreen(dpy), (doubleBuffer)? dblBuf : snglBuf);
@@ -637,38 +656,52 @@ int main(int argc, char **argv) {
   winAttrib.border_pixel = 0;
   winAttrib.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | StructureNotifyMask | PointerMotionMask;
   Screen* screen = ScreenOfDisplay(dpy, 0);
+  unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask;
 
-  //unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask;
-  //Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, winWidth, winHeight, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
+  if ( fullscreen ) {
+    winAttrib.override_redirect = true;
+    winWidth = screen->width;
+    winHeight = screen->height;
+    vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
+  }
+
+
+  Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, winWidth, winHeight, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
+  XSetStandardProperties(dpy, win, "FV200", "main", None, NULL, 0, NULL);
+  XSelectInput(dpy, win, winAttrib.event_mask);
+
+
+  //unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
+  //Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, screen->width, screen->height, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
   //XSetStandardProperties(dpy, win, "FV200", "main", None, argv, argc, NULL);
 
 
-  winAttrib.override_redirect = true;
-  unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
-  
-  Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, screen->width, screen->height, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
-  XSetStandardProperties(dpy, win, "FV200", "main", None, argv, argc, NULL);
+  if ( fullscreen ) {
+    /*
+    Atom wm_state   = XInternAtom (dpy, "_NET_WM_STATE", true );
+    Atom wm_fullscreen = XInternAtom (dpy, "_NET_WM_STATE_FULLSCREEN", true );
+    XChangeProperty(dpy, win, wm_state, XA_ATOM, 32, PropModeReplace, (unsigned char *)&wm_fullscreen, 1);
 
-  Atom wm_state   = XInternAtom (dpy, "_NET_WM_STATE", true );
-  Atom wm_fullscreen = XInternAtom (dpy, "_NET_WM_STATE_FULLSCREEN", true );
-  XChangeProperty(dpy, win, wm_state, XA_ATOM, 32, PropModeReplace, (unsigned char *)&wm_fullscreen, 1);
+    Atom wm_motif = XInternAtom (dpy, "_MOTIF_WM_HINTS", true );
+    Hints hints = {2, 0, 0, 0, 0};
+    XChangeProperty(dpy, win, wm_motif, XA_ATOM, 32, PropModeReplace, (unsigned char *)&hints, 5);
 
-  Atom wm_motif = XInternAtom (dpy, "_MOTIF_WM_HINTS", true );
-  Hints hints = {2, 0, 0, 0, 0};
-  XChangeProperty(dpy, win, wm_motif, XA_ATOM, 32, PropModeReplace, (unsigned char *)&hints, 5);
+    static char data[1] = {0};
+    XColor dummyColor;
+    Pixmap blankPixmap = XCreateBitmapFromData(dpy, RootWindow(dpy, vis->screen), data, 1, 1);
+    Cursor blankcursor = XCreatePixmapCursor(dpy, blankPixmap, blankPixmap, &dummyColor, &dummyColor, 0, 0);
+    XFreePixmap(dpy, blankPixmap);
+    XDefineCursor(dpy, win, blankcursor);
 
-  XSelectInput(dpy, win, winAttrib.event_mask);
+    */
 
-  static char data[1] = {0};
-  XColor dummyColor;
-  Pixmap blankPixmap = XCreateBitmapFromData(dpy, RootWindow(dpy, vis->screen), data, 1, 1);
-  Cursor blankcursor = XCreatePixmapCursor(dpy, blankPixmap, blankPixmap, &dummyColor, &dummyColor, 0, 0);
-  XFreePixmap(dpy, blankPixmap);
-  XDefineCursor(dpy, win, blankcursor);
-  
-  /*
+    screenWidth = screen->width;
+    screenHeight = screen->height;
+  } else {
+    screenWidth = winWidth;
+    screenHeight = winHeight;
+  }
 
-  */
 
   glXMakeCurrent(dpy, win, glxContext);
   XMapWindow(dpy, win);
@@ -679,10 +712,6 @@ int main(int argc, char **argv) {
   fd_set inFds;
   struct timeval timeVal;
 
-  screenWidth = screen->width;
-  screenHeight = screen->height;
-  //screenWidth = winWidth;
-  //screenHeight = winHeight;
 
   printf("screenWidth : %d \n", screenWidth);
   printf("screenHeight : %d \n", screenHeight);
@@ -1121,7 +1150,6 @@ int main(int argc, char **argv) {
   TexCoord decimalSurfTexCoord = {decimalSurfCoordX1Y1, decimalSurfCoordX1Y2, decimalSurfCoordX2Y2, decimalSurfCoordX2Y1};
   unsigned int decimalNumberVertexArrayId = generateVertexArrayObject(programId, 15, 0.1f, &decimalSurfTexCoord, NULL);
 
-  GLboolean exitLoop = GL_FALSE;
   while (!exitLoop) {
     FD_ZERO(&inFds);
     FD_SET(x11Fd, &inFds);
@@ -1187,9 +1215,25 @@ int main(int argc, char **argv) {
 	glFlush();
       }
     }
-
   }
-    
+
+  ffmpegThreadLive = false;
+  pthread_mutex_unlock(ffmpegNewFrameMutex[0]);
+  usleep(9000);
+  pthread_mutex_unlock(ffmpegBufferMutex[0]);
+  usleep(9000);
+  pthread_mutex_unlock(ffmpegLoadFrameMutex);
+  usleep(9000);
+  
+  pthread_mutex_unlock(ffmpegNewFrameMutex[1]);    
+  usleep(9000);
+  pthread_mutex_unlock(ffmpegBufferMutex[1]);
+  usleep(9000);
+  pthread_mutex_unlock(ffmpegLoadFrameMutex);
+  usleep(9000);
+  
+  ffmpegCloseVideoFile(avFormatContext, avCodecContext);
+  
   glUseProgram(0);
   XCloseDisplay(dpy);
 
