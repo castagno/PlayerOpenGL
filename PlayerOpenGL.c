@@ -646,6 +646,35 @@ int main(int argc, char **argv) {
       fullscreen = false;
     }
   }
+
+  pthread_mutex_t ffmpegLoadFrameMutexInstance;
+  ffmpegLoadFrameMutex = &ffmpegLoadFrameMutexInstance;
+  pthread_mutex_init(ffmpegLoadFrameMutex, NULL);
+  
+  pthread_mutex_t ffmpegBufferMutexInstance0;
+  ffmpegBufferMutex[0] = &ffmpegBufferMutexInstance0; 
+  pthread_mutex_init(ffmpegBufferMutex[0], NULL);
+ 
+  pthread_mutex_t ffmpegBufferMutexInstance1;
+  ffmpegBufferMutex[1] = &ffmpegBufferMutexInstance1;
+  pthread_mutex_init(ffmpegBufferMutex[1], NULL);
+  
+  pthread_mutex_t ffmpegNewFrameMutexInstance0;
+  ffmpegNewFrameMutex[0] = &ffmpegNewFrameMutexInstance0;
+  pthread_mutex_init(ffmpegNewFrameMutex[0], NULL);
+  
+  pthread_mutex_t ffmpegNewFrameMutexInstance1;
+  ffmpegNewFrameMutex[1] = &ffmpegNewFrameMutexInstance1;
+  pthread_mutex_init(ffmpegNewFrameMutex[1], NULL);
+  
+  if (!ffmpegOpenVideoFile(&avFormatContext, &avCodecContext, &videoWidth, &videoHeight, &vidStrId, fileName)) {
+    printf("Couldn't open video file. \n");
+    return 1;
+  }
+
+  printf("videoWidth : %d \n", videoWidth);
+  printf("videoHeight : %d \n", videoHeight);
+  
   
   Display* dpy = XOpenDisplay(NULL);
   XVisualInfo* vis = glXChooseVisual(dpy, DefaultScreen(dpy), (doubleBuffer)? dblBuf : snglBuf);
@@ -663,6 +692,12 @@ int main(int argc, char **argv) {
     winWidth = screen->width;
     winHeight = screen->height;
     vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
+  } else if (videoWidth > screen->width || videoHeight > screen->height) {
+    winWidth = screen->width;
+    winHeight = screen->height;
+  } else {
+    winWidth = videoWidth;
+    winHeight = videoHeight;
   }
 
 
@@ -716,33 +751,6 @@ int main(int argc, char **argv) {
   printf("screenWidth : %d \n", screenWidth);
   printf("screenHeight : %d \n", screenHeight);
 
-  pthread_mutex_t ffmpegLoadFrameMutexInstance;
-  ffmpegLoadFrameMutex = &ffmpegLoadFrameMutexInstance;
-  pthread_mutex_init(ffmpegLoadFrameMutex, NULL);
-  
-  pthread_mutex_t ffmpegBufferMutexInstance0;
-  ffmpegBufferMutex[0] = &ffmpegBufferMutexInstance0; 
-  pthread_mutex_init(ffmpegBufferMutex[0], NULL);
- 
-  pthread_mutex_t ffmpegBufferMutexInstance1;
-  ffmpegBufferMutex[1] = &ffmpegBufferMutexInstance1;
-  pthread_mutex_init(ffmpegBufferMutex[1], NULL);
-  
-  pthread_mutex_t ffmpegNewFrameMutexInstance0;
-  ffmpegNewFrameMutex[0] = &ffmpegNewFrameMutexInstance0;
-  pthread_mutex_init(ffmpegNewFrameMutex[0], NULL);
-  
-  pthread_mutex_t ffmpegNewFrameMutexInstance1;
-  ffmpegNewFrameMutex[1] = &ffmpegNewFrameMutexInstance1;
-  pthread_mutex_init(ffmpegNewFrameMutex[1], NULL);
-  
-  if (!ffmpegOpenVideoFile(&avFormatContext, &avCodecContext, &videoWidth, &videoHeight, &vidStrId, fileName)) {
-    printf("Couldn't open video file. \n");
-    return 1;
-  }
-
-  printf("videoWidth : %d \n", videoWidth);
-  printf("videoHeight : %d \n", videoHeight);
 
   frameData = (unsigned char*)malloc(videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
   memset(frameData, 0xFF, videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
