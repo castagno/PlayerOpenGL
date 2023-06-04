@@ -1,5 +1,5 @@
 /* Compilation CMD
-gcc PlayerOpenGL.c -o PlayerOpenGL -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include/ -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 -lgstapp-1.0 -lGLEW -lGL -lX11 -lpthread
+gcc PlayerOpenGL.c -o PlayerOpenGL -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include/ -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/usr/lib/i386-linux-gnu/glib-2.0/include/ -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 -lgstapp-1.0 -lGLEW -lGL -lX11 -lpthread -lavformat -lavcodec -lavutil
 */
 
 #include <stdio.h>
