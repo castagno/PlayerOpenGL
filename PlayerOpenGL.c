@@ -67,7 +67,6 @@ int64_t          pts                    = 0;
 int              vidStrId               = -1;
 bool             ffmpegAvFrameIdx       = false;
 bool             ffmpegThreadLive       = false;
-//bool             newFrameFlag[2]        = {false, false};
 pthread_mutex_t* ffmpegLoadFrameMutex   = NULL;
 pthread_mutex_t* ffmpegBufferMutex[2]   = {NULL, NULL};
 pthread_mutex_t* ffmpegNewFrameMutex[2] = {NULL, NULL};
@@ -303,9 +302,6 @@ uint8_t decimalDot[FONT_HEIGHT][FONT_WIDTH] =
 };
 
 
-
-
-
 void checkStatus(uint32_t programId, GLboolean typeProgram) {
 	int32_t compileStatus;
 	int32_t infoLogLength;
@@ -430,8 +426,6 @@ unsigned int generateVertexArrayObject(unsigned int programId, int texIndex, flo
 }
 
 
-
-
 bool ffmpegOpenVideoFile(AVFormatContext** avFmtCtx, AVCodecContext** avCodecCtx, uint32_t* width, uint32_t* height, int* vidStrId, const char* filename) {
   AVFormatContext* avFmtCxtLocal = avformat_alloc_context();
 
@@ -530,23 +524,12 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
     break;
   }
 
-  //memcpy(frameData, avFrame[ffmpegAvFrameIdx]->data[0], videoWidth * videoHeight * sizeof(unsigned char));
   //memcpy(lumaVideoData, avFrameLocal->data[0], srcVideoWidth * srcVideoHeight * sizeof(uint8_t));
   //memcpy(chromaRedVideoData, avFrameLocal->data[2], (srcVideoWidth / 2) * (srcVideoHeight / 2) * sizeof(uint8_t));
-  //memcpy(chromaBlueVideoData, avFrameLocal->data[1], (srcVideoWidth / 2) * (srcVideoHeight / 2) * sizeof(uint8_t));
-  
-  pthread_mutex_lock(ffmpegNewFrameMutex[bufferIdx]);
-  //if ( !newFrame ) {
-  //  ffmpegAvFrameIdx = bufferIdx;
-  //}
-  
-  //newFrameFlag[bufferIdx] = true;
-  
+  //memcpy(chromaBlueVideoData, avFrameLocal->data[1], (srcVideoWidth / 2) * (srcVideoHeight / 2) * sizeof(uint8_t)); 
   //printf("newFrame = true : Buffer %X \n", bufferIdx);
-  
-  //if (avFrame[!ffmpegAvFrameIdx] != NULL) {
-  //  av_frame_free(&avFrame[!ffmpegAvFrameIdx]);
-  //}
+ 
+  pthread_mutex_lock(ffmpegNewFrameMutex[bufferIdx]);
   av_packet_free(&avPacketLocal);
 
   return 0;
@@ -554,12 +537,6 @@ int ffmpegLoadFrame(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx, int* vi
 
 int ffmpegCloseVideoFile(AVFormatContext* avFmtCtx, AVCodecContext* avCodCtx) {
   printf("[ClientRTSP] closeVideoFile() \n");
-
-  //pthread_mutex_unlock(ffmpegNewFrameMutex[0]);    
-  //pthread_mutex_unlock(ffmpegBufferMutex[0]);
-  //pthread_mutex_unlock(ffmpegNewFrameMutex[1]);    
-  //pthread_mutex_unlock(ffmpegBufferMutex[1]);
-  //pthread_mutex_unlock(ffmpegLoadFrameMutex);
 
   pthread_mutex_destroy(ffmpegNewFrameMutex[0]);
   pthread_mutex_destroy(ffmpegNewFrameMutex[1]);
@@ -705,11 +682,9 @@ int main(int argc, char **argv) {
   XSetStandardProperties(dpy, win, "FV200", "main", None, NULL, 0, NULL);
   XSelectInput(dpy, win, winAttrib.event_mask);
 
-
   //unsigned long vMask = CWBorderPixel | CWColormap | CWEventMask | CWOverrideRedirect;
   //Window win = XCreateWindow(dpy, RootWindow(dpy, vis->screen), 0, 0, screen->width, screen->height, 0, vis->depth, InputOutput, vis->visual, vMask, &winAttrib);
   //XSetStandardProperties(dpy, win, "FV200", "main", None, argv, argc, NULL);
-
 
   if ( fullscreen ) {
     /*
@@ -721,14 +696,14 @@ int main(int argc, char **argv) {
     Hints hints = {2, 0, 0, 0, 0};
     XChangeProperty(dpy, win, wm_motif, XA_ATOM, 32, PropModeReplace, (unsigned char *)&hints, 5);
 
+    */
+
     static char data[1] = {0};
     XColor dummyColor;
     Pixmap blankPixmap = XCreateBitmapFromData(dpy, RootWindow(dpy, vis->screen), data, 1, 1);
     Cursor blankcursor = XCreatePixmapCursor(dpy, blankPixmap, blankPixmap, &dummyColor, &dummyColor, 0, 0);
     XFreePixmap(dpy, blankPixmap);
     XDefineCursor(dpy, win, blankcursor);
-
-    */
 
     screenWidth = screen->width;
     screenHeight = screen->height;
@@ -747,14 +722,11 @@ int main(int argc, char **argv) {
   fd_set inFds;
   struct timeval timeVal;
 
-
   printf("screenWidth : %d \n", screenWidth);
   printf("screenHeight : %d \n", screenHeight);
 
-
   frameData = (unsigned char*)malloc(videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
-  memset(frameData, 0xFF, videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
-
+  memset(frameData, 0x80, videoWidth * videoHeight * pixelFormat * sizeof(unsigned char));
   
   pthread_t ffmpegBufferZeroThread;
   pthread_create(&ffmpegBufferZeroThread, NULL, ffmpegBufferZeroThreadHandler, "ffmpegBufferZeroThread");
@@ -778,11 +750,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE0);
   glGenTextures(1, &decimalZeroHandle);
   glBindTexture(GL_TEXTURE_2D, decimalZeroHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalZero);
 
 
@@ -790,11 +762,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE1);
   glGenTextures(1, &decimalOneHandle);
   glBindTexture(GL_TEXTURE_2D, decimalOneHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalOne);
 
 
@@ -802,11 +774,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE2);
   glGenTextures(1, &decimalTwoHandle);
   glBindTexture(GL_TEXTURE_2D, decimalTwoHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalTwo);
 
 
@@ -814,11 +786,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE3);
   glGenTextures(1, &decimalThreeHandle);
   glBindTexture(GL_TEXTURE_2D, decimalThreeHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalThree);
 
 
@@ -826,11 +798,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE4);
   glGenTextures(1, &decimalFourHandle);
   glBindTexture(GL_TEXTURE_2D, decimalFourHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalFour);
 
 
@@ -838,11 +810,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE5);
   glGenTextures(1, &decimalFiveHandle);
   glBindTexture(GL_TEXTURE_2D, decimalFiveHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalFive);
 
 
@@ -850,11 +822,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE6);
   glGenTextures(1, &decimalSixHandle);
   glBindTexture(GL_TEXTURE_2D, decimalSixHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalSix);
 
 
@@ -862,11 +834,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE7);
   glGenTextures(1, &decimalSevenHandle);
   glBindTexture(GL_TEXTURE_2D, decimalSevenHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalSeven);
 
 
@@ -874,11 +846,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE8);
   glGenTextures(1, &decimalEightHandle);
   glBindTexture(GL_TEXTURE_2D, decimalEightHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalEight);
 
 
@@ -886,11 +858,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE9);
   glGenTextures(1, &decimalNineHandle);
   glBindTexture(GL_TEXTURE_2D, decimalNineHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalNine);
 
 
@@ -898,11 +870,11 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE10);
   glGenTextures(1, &decimalDotHandle);
   glBindTexture(GL_TEXTURE_2D, decimalDotHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_WIDTH, FONT_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, decimalDot);
 
 
@@ -910,48 +882,48 @@ int main(int argc, char **argv) {
   glActiveTexture(GL_TEXTURE11);
   glGenTextures(1, &texLumaHandle);
   glBindTexture(GL_TEXTURE_2D, texLumaHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, videoWidth, videoHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, videoWidth, videoHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, frameData);
 
 
   GLuint texChromaBlueHandle;
   glActiveTexture(GL_TEXTURE12);
   glGenTextures(1, &texChromaBlueHandle);
   glBindTexture(GL_TEXTURE_2D, texChromaBlueHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, frameData);
 
 
   GLuint texChromaRedHandle;
   glActiveTexture(GL_TEXTURE13);
   glGenTextures(1, &texChromaRedHandle);
   glBindTexture(GL_TEXTURE_2D, texChromaRedHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, frameData);
 
 
   GLuint texGstFrameHandle;
   glActiveTexture(GL_TEXTURE15);
   glGenTextures(1, &texGstFrameHandle);
   glBindTexture(GL_TEXTURE_2D, texGstFrameHandle);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, videoWidth, videoHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, frameData);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, videoWidth, videoHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
   //glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, videoWidth, videoHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, NULL);
 
   const char* vertexShaderCode =
@@ -1029,7 +1001,11 @@ int main(int argc, char **argv) {
     "        b = y + 2.017 * u;\n"
 
     "        gl_FragColor = vec4(r, g, b, 1.0);\n"
-
+    
+    /*
+    "        gl_FragColor = texture2D( selectTex[11], vertTexCoordVar );\n"
+    */
+    
     "    } else if ( vertTexIndexInt == 12 ) {\n"
     "        gl_FragColor = texture2D( selectTex[12], vertTexCoordVar ) * vertColorVar;\n"
     "    } else if ( vertTexIndexInt == 13 ) {\n"
@@ -1106,7 +1082,7 @@ int main(int argc, char **argv) {
   int32_t samplers[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
   glUniform1iv(glGetUniformLocation(programId, "selectTex"), sizeof(samplers) / sizeof(samplers[0]), samplers);
   glUniform1i(glGetUniformLocation(programId, "unitNumberTex"), frameCount);
-  //glUniform1i(glGetUniformLocation(programId, "decimalNumberTex"), frameCount);
+  glUniform1i(glGetUniformLocation(programId, "decimalNumberTex"), frameCount);
 
   float winAspectRatio = (float)screenWidth / (float)screenHeight;
   float srcAspectRatio = (float)videoWidth / (float)videoHeight;
@@ -1119,15 +1095,14 @@ int main(int argc, char **argv) {
   if ( srcAspectRatio > winAspectRatio) {
     videoPoxX1 = -1.0f;
     videoPoxX2 = +1.0f;
-    videoPoxY1 = +1.0f * winAspectRatio / srcAspectRatio; // ( (float)videoHeight / (float)videoWidth );
-    videoPoxY2 = -1.0f * winAspectRatio / srcAspectRatio; // * ( (float)videoHeight / (float)videoWidth );
+    videoPoxY1 = +1.0f * winAspectRatio / srcAspectRatio;
+    videoPoxY2 = -1.0f * winAspectRatio / srcAspectRatio;
   } else if (srcAspectRatio < winAspectRatio) {
-    videoPoxX1 = -1.0f * srcAspectRatio / winAspectRatio; // ( (float)videoWidth / (float)videoHeight );
-    videoPoxX2 = +1.0f * srcAspectRatio / winAspectRatio; // ( (float)videoWidth / (float)videoHeight );
+    videoPoxX1 = -1.0f * srcAspectRatio / winAspectRatio;
+    videoPoxX2 = +1.0f * srcAspectRatio / winAspectRatio;
     videoPoxY1 = +1.0f;
     videoPoxY2 = -1.0f;
   }
-
   
   Vector2 videoSurfCoordX1Y1 = {videoPoxX1, videoPoxY1};
   Vector2 videoSurfCoordX1Y2 = {videoPoxX1, videoPoxY2};
@@ -1161,7 +1136,7 @@ int main(int argc, char **argv) {
   while (!exitLoop) {
     FD_ZERO(&inFds);
     FD_SET(x11Fd, &inFds);
-    timeVal.tv_usec = 100;
+    timeVal.tv_usec = 1;
     timeVal.tv_sec = 0;
     select(x11Fd + 1, &inFds, NULL, NULL, &timeVal);
 
@@ -1178,50 +1153,45 @@ int main(int argc, char **argv) {
     }
 
 
-    //printf("gstDecoderNewFramenewFrameFlag[ffmpegAvFrameIdx] \n");
-    if ( true /* newFrameFlag[ffmpegAvFrameIdx] */ ) {
-      //printf("gstDecoderNewFramenewFrameFlag[%X] : TRUE \n", ffmpegAvFrameIdx);
-      pthread_mutex_lock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
+    pthread_mutex_lock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
       
-      glActiveTexture(GL_TEXTURE11);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, videoWidth, videoHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[0]);
+    glActiveTexture(GL_TEXTURE11);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, videoWidth, videoHeight, GL_LUMINANCE, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[0]);
       
-      glActiveTexture(GL_TEXTURE12);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[2]);
+    glActiveTexture(GL_TEXTURE12);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, videoWidth/2, videoHeight/2, GL_RED, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[2]);
 
-      glActiveTexture(GL_TEXTURE13);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, videoWidth / 2, videoHeight / 2, 0, GL_RED, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[1]);
+    glActiveTexture(GL_TEXTURE13);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, videoWidth/2, videoHeight/2, GL_RED, GL_UNSIGNED_BYTE, avFrame[ffmpegAvFrameIdx]->data[1]);
 
-      //newFrameFlag[ffmpegAvFrameIdx] = false;
-      pthread_mutex_unlock(ffmpegNewFrameMutex[ffmpegAvFrameIdx]);
-      pthread_mutex_unlock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
-      ffmpegAvFrameIdx = !ffmpegAvFrameIdx;
+    pthread_mutex_unlock(ffmpegNewFrameMutex[ffmpegAvFrameIdx]);
+    pthread_mutex_unlock(ffmpegBufferMutex[ffmpegAvFrameIdx]);
+    ffmpegAvFrameIdx = !ffmpegAvFrameIdx;
 
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-      glUniform1i(glGetUniformLocation(programId, "unitNumberTex"), frameCount % 10);
-      //glUniform1i(glGetUniformLocation(programId, "decimalNumberTex"), ( (frameCount - (frameCount % 10) ) / 10) % 10);
+    glUniform1i(glGetUniformLocation(programId, "unitNumberTex"), frameCount % 10);
+    //glUniform1i(glGetUniformLocation(programId, "decimalNumberTex"), ( (frameCount - (frameCount % 10) ) / 10) % 10);
 
-      glBindVertexArray(videoVertexArrayId);
-      glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
-      glBindVertexArray(0);
+    glBindVertexArray(videoVertexArrayId);
+    glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
 
-      glBindVertexArray(unitNumberVertexArrayId);
-      glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
-      glBindVertexArray(0);
+    glBindVertexArray(unitNumberVertexArrayId);
+    glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
 
-      //glBindVertexArray(decimalNumberVertexArrayId);
-      //glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
-      //glBindVertexArray(0);
+    //glBindVertexArray(decimalNumberVertexArrayId);
+    //glDrawElements(GL_QUADS, 4, GL_UNSIGNED_INT, 0);
+    //glBindVertexArray(0);
 
-      frameCount += 1;
+    frameCount += 1;
 
 
-      if (doubleBuffer) {
-	glXSwapBuffers(dpy, win);
-      } else {
-	glFlush();
-      }
+    if (doubleBuffer) {
+      glXSwapBuffers(dpy, win);
+    } else {
+      glFlush();
     }
   }
 
